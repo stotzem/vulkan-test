@@ -7,7 +7,7 @@
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "UnusedParameter"
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
 #pragma clang diagnostic pop
 
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
@@ -15,7 +15,7 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    SDL_Window *window = SDL_CreateWindow("game", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+    SDL_Window* window = SDL_CreateWindow("game", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                                           1280, 800, SDL_WINDOW_VULKAN);
     if (!window) {
         std::cerr << "Error creating window: " << SDL_GetError() << "\n";
@@ -30,7 +30,7 @@ int main(int argc, char **argv) {
         SDL_Quit();
         return 1;
     }
-    std::vector<const char *> enabledExtensions(extensionCount);
+    std::vector<const char*> enabledExtensions(extensionCount);
     if (!SDL_Vulkan_GetInstanceExtensions(window, &extensionCount, enabledExtensions.data())) {
         std::cerr << "Error at getting Vulkan extensions: " << SDL_GetError() << "\n";
         SDL_DestroyWindow(window);
@@ -38,7 +38,9 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    std::vector<const char *> enabledLayers = {"VK_LAYER_KHRONOS_validation"};
+    std::vector<const char*> enabledLayers = {
+        "VK_LAYER_KHRONOS_validation",
+    };
 
     VkApplicationInfo applicationInfo = {VK_STRUCTURE_TYPE_APPLICATION_INFO};
     applicationInfo.apiVersion = VK_API_VERSION_1_0;
@@ -52,6 +54,67 @@ int main(int argc, char **argv) {
 
     VkInstance instance;
     vkCreateInstance(&createInfo, nullptr, &instance);
+
+    VkPhysicalDevice physicalDevice;
+    VkPhysicalDeviceProperties physicalDeviceProperties;
+    uint32_t devicesCount = 0;
+    vkEnumeratePhysicalDevices(instance, &devicesCount, nullptr);
+    if (devicesCount == 0) {
+        std::cerr << "Failed to find GPUs with Vulkan support!\n";
+        return 1;
+    }
+
+    std::vector<VkPhysicalDevice> physicalDevices(devicesCount);
+    vkEnumeratePhysicalDevices(instance, &devicesCount, physicalDevices.data());
+    if (devicesCount > 1) {
+        std::cout << "Found " << devicesCount << " GPUs\n";
+        for (uint32_t i = 0; i < devicesCount; ++i) {
+            VkPhysicalDeviceProperties properties = {};
+            vkGetPhysicalDeviceProperties(physicalDevices[i], &properties);
+            std::cout << "GPU " << i << ": " << properties.deviceName << "\n";
+        }
+    }
+    physicalDevice = physicalDevices[0];
+
+    vkGetPhysicalDeviceProperties(physicalDevice, &physicalDeviceProperties);
+    VkDevice device;
+
+    uint32_t queueFamiliesCount = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamiliesCount, nullptr);
+    std::vector<VkQueueFamilyProperties> queueFamilies(queueFamiliesCount);
+    vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &queueFamiliesCount,
+                                             queueFamilies.data());
+
+    uint32_t graphicsQueueIndex = 0;
+    for (uint32_t i = 0; i < queueFamiliesCount; ++i) {
+        VkQueueFamilyProperties queueFamily = queueFamilies[i];
+        if (queueFamily.queueCount > 0) {
+            if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+                graphicsQueueIndex = i;
+                break;
+            }
+        }
+    }
+
+    float priorities[] = {1.0f};
+    VkDeviceQueueCreateInfo queueCreateInfo = {VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
+    queueCreateInfo.queueFamilyIndex = graphicsQueueIndex;
+    queueCreateInfo.queueCount = 1;
+    queueCreateInfo.pQueuePriorities = priorities;
+
+    VkPhysicalDeviceFeatures enabledFeatures = {};
+    std::vector<const char*> deviceExtensions = {};
+
+    VkDeviceCreateInfo deviceCreateInfo = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
+    deviceCreateInfo.queueCreateInfoCount = 1;
+    deviceCreateInfo.pQueueCreateInfos = &queueCreateInfo;
+    deviceCreateInfo.enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size());
+    deviceCreateInfo.ppEnabledExtensionNames = deviceExtensions.data();
+    deviceCreateInfo.pEnabledFeatures = &enabledFeatures;
+
+    vkCreateDevice(physicalDevice, &deviceCreateInfo, nullptr, &device);
+    VkQueue queue;
+    vkGetDeviceQueue(device, graphicsQueueIndex, 0, &queue);
 
     bool running = true;
     while (running) {
@@ -67,6 +130,8 @@ int main(int argc, char **argv) {
         }
     }
 
+    vkDeviceWaitIdle(device);
+    vkDestroyDevice(device, nullptr);
     vkDestroyInstance(instance, nullptr);
     SDL_DestroyWindow(window);
     SDL_Quit();
