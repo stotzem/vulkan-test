@@ -103,7 +103,9 @@ int main(int argc, char** argv) {
     queueCreateInfo.pQueuePriorities = priorities;
 
     VkPhysicalDeviceFeatures enabledFeatures = {};
-    std::vector<const char*> deviceExtensions = {};
+    std::vector<const char*> deviceExtensions = {
+        VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+    };
 
     VkDeviceCreateInfo deviceCreateInfo = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
     deviceCreateInfo.queueCreateInfoCount = 1;
@@ -115,6 +117,71 @@ int main(int argc, char** argv) {
     vkCreateDevice(physicalDevice, &deviceCreateInfo, nullptr, &device);
     VkQueue queue;
     vkGetDeviceQueue(device, graphicsQueueIndex, 0, &queue);
+
+    VkImageUsageFlags imageUsageFlags = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    VkSwapchainKHR swapchain;
+    std::vector<VkImage> swapchainImages;
+    uint32_t swapchainWidth;
+    uint32_t swapchainHeight;
+    VkFormat swapchainFormat;
+
+    VkSurfaceKHR surface;
+
+    SDL_Vulkan_CreateSurface(window, instance, &surface);
+    VkBool32 supportsPresent = 0;
+    vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, graphicsQueueIndex, surface,
+                                         &supportsPresent);
+    if (!supportsPresent) {
+        std::cerr << "Graphics queue does not support present!\n";
+        return 1;
+    }
+
+    uint32_t formatsCount = 0;
+    vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatsCount, nullptr);
+    std::vector<VkSurfaceFormatKHR> availableFormats(formatsCount);
+    vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatsCount,
+                                         availableFormats.data());
+    if (formatsCount <= 0) {
+        std::cerr << "No surface formats available!\n";
+    }
+
+    VkFormat imageFormat = availableFormats[0].format;
+    VkColorSpaceKHR imageColorSpace = availableFormats[0].colorSpace;
+    VkSurfaceCapabilitiesKHR surfaceCapabilities;
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &surfaceCapabilities);
+    if (surfaceCapabilities.currentExtent.width == 0xFFFFFFFF) {
+        surfaceCapabilities.currentExtent.width = surfaceCapabilities.minImageExtent.width;
+    }
+    if (surfaceCapabilities.currentExtent.height == 0xFFFFFFFF) {
+        surfaceCapabilities.currentExtent.height = surfaceCapabilities.minImageExtent.height;
+    }
+    if (surfaceCapabilities.maxImageCount == 0) {
+        surfaceCapabilities.maxImageCount = 8;
+    }
+
+    VkSwapchainCreateInfoKHR swapchainCreateInfo = {VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
+    swapchainCreateInfo.surface = surface;
+    swapchainCreateInfo.minImageCount = 3;
+    swapchainCreateInfo.imageFormat = imageFormat;
+    swapchainCreateInfo.imageColorSpace = imageColorSpace;
+    swapchainCreateInfo.imageExtent = surfaceCapabilities.currentExtent;
+    swapchainCreateInfo.imageArrayLayers = 1;
+    swapchainCreateInfo.imageUsage = imageUsageFlags;
+    swapchainCreateInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    swapchainCreateInfo.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+    swapchainCreateInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    swapchainCreateInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+    vkCreateSwapchainKHR(device, &swapchainCreateInfo, nullptr, &swapchain);
+
+    swapchainFormat = imageFormat;
+    swapchainWidth = surfaceCapabilities.currentExtent.width;
+    swapchainHeight = surfaceCapabilities.currentExtent.height;
+
+    uint32_t imagesCount;
+    vkGetSwapchainImagesKHR(device, swapchain, &imagesCount, nullptr);
+
+    swapchainImages.resize(imagesCount);
+    vkGetSwapchainImagesKHR(device, swapchain, &imagesCount, swapchainImages.data());
 
     bool running = true;
     while (running) {
@@ -131,6 +198,8 @@ int main(int argc, char** argv) {
     }
 
     vkDeviceWaitIdle(device);
+    vkDestroySwapchainKHR(device, swapchain, nullptr);
+    vkDestroySurfaceKHR(instance, surface, nullptr);
     vkDestroyDevice(device, nullptr);
     vkDestroyInstance(instance, nullptr);
     SDL_DestroyWindow(window);
