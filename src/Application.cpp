@@ -124,6 +124,7 @@ int main(int argc, char** argv) {
     uint32_t swapchainWidth;
     uint32_t swapchainHeight;
     VkFormat swapchainFormat;
+    std::vector<VkImageView> swapchainImageViews;
 
     VkSurfaceKHR surface;
 
@@ -183,6 +184,55 @@ int main(int argc, char** argv) {
     swapchainImages.resize(imagesCount);
     vkGetSwapchainImagesKHR(device, swapchain, &imagesCount, swapchainImages.data());
 
+    swapchainImageViews.resize(imagesCount);
+    for (uint32_t i = 0; i < imagesCount; ++i) {
+        VkImageViewCreateInfo imageViewCreateInfo = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+        imageViewCreateInfo.image = swapchainImages[i];
+        imageViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        imageViewCreateInfo.format = swapchainFormat;
+        imageViewCreateInfo.components = {VK_COMPONENT_SWIZZLE_IDENTITY};
+        imageViewCreateInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        vkCreateImageView(device, &imageViewCreateInfo, nullptr, &swapchainImageViews[i]);
+    }
+
+    VkRenderPass renderPass;
+    VkFormat renderFormat = swapchainFormat;
+
+    VkAttachmentDescription attachmentDescription = {};
+    attachmentDescription.format = renderFormat;
+    attachmentDescription.samples = VK_SAMPLE_COUNT_1_BIT;
+    attachmentDescription.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    attachmentDescription.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    attachmentDescription.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    attachmentDescription.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+    VkAttachmentReference attachmentReference = {0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+
+    VkSubpassDescription subpass = {};
+    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.colorAttachmentCount = 1;
+    subpass.pColorAttachments = &attachmentReference;
+
+    VkRenderPassCreateInfo renderPassCreateInfo = {VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
+    renderPassCreateInfo.attachmentCount = 1;
+    renderPassCreateInfo.pAttachments = &attachmentDescription;
+    renderPassCreateInfo.subpassCount = 1;
+    renderPassCreateInfo.pSubpasses = &subpass;
+    vkCreateRenderPass(device, &renderPassCreateInfo, nullptr, &renderPass);
+
+    std::vector<VkFramebuffer> framebuffer;
+    framebuffer.resize(swapchainImages.size());
+    for (uint32_t i = 0; i < swapchainImages.size(); ++i) {
+        VkFramebufferCreateInfo framebufferCreateInfo = {VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
+        framebufferCreateInfo.renderPass = renderPass;
+        framebufferCreateInfo.attachmentCount = 1;
+        framebufferCreateInfo.pAttachments = &swapchainImageViews[i];
+        framebufferCreateInfo.width = swapchainWidth;
+        framebufferCreateInfo.height = swapchainHeight;
+        framebufferCreateInfo.layers = 1;
+        vkCreateFramebuffer(device, &framebufferCreateInfo, nullptr, &framebuffer[i]);
+    }
+
     bool running = true;
     while (running) {
         SDL_Event event;
@@ -198,6 +248,14 @@ int main(int argc, char** argv) {
     }
 
     vkDeviceWaitIdle(device);
+    for (auto& i : framebuffer) {
+        vkDestroyFramebuffer(device, i, nullptr);
+    }
+    framebuffer.clear();
+    vkDestroyRenderPass(device, renderPass, nullptr);
+    for (auto& i : swapchainImageViews) {
+        vkDestroyImageView(device, i, nullptr);
+    }
     vkDestroySwapchainKHR(device, swapchain, nullptr);
     vkDestroySurfaceKHR(instance, surface, nullptr);
     vkDestroyDevice(device, nullptr);
